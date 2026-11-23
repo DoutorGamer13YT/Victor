@@ -1,0 +1,63 @@
+name: Build APK (debug)
+
+# Compila o APK de depuração na nuvem do GitHub e publica em "Releases".
+# Funciona de dois jeitos:
+#  - repositório com os arquivos do projeto na raiz; ou
+#  - repositório só com este arquivo + project.zip (o zip é extraído antes do build).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Localizar o projeto
+        run: |
+          if [ -f project.zip ]; then
+            rm -rf src_proj && mkdir src_proj
+            unzip -q project.zip -d src_proj
+            F=$(find src_proj -maxdepth 3 -name settings.gradle.kts | head -n 1)
+            echo "SRC=$(dirname "$F")" >> "$GITHUB_ENV"
+          else
+            echo "SRC=." >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Compilar
+        working-directory: ${{ env.SRC }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Reunir o APK
+        run: cp "$SRC/app/build/outputs/apk/debug/app-debug.apk" ios-banners-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-banners-debug-apk
+          path: ios-banners-debug.apk
+
+      - name: Publicar em Releases (link direto para baixar)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "debug-${{ github.run_number }}" ios-banners-debug.apk \
+            --title "APK de depuração #${{ github.run_number }}" \
+            --notes "APK de depuração assinado com a chave de debug. Compilado na nuvem; não testado em aparelho." \
+            --latest
